@@ -75,8 +75,8 @@ public class StatusBar extends CordovaPlugin {
             // by the Cordova.
             window.clearFlags(WindowManager.LayoutParams.FLAG_FORCE_NOT_FULLSCREEN);
 
-            // Read 'StatusBarOverlaysWebView' from config.xml, default is true.
-            setStatusBarTransparent(preferences.getBoolean("StatusBarOverlaysWebView", true));
+            // Read 'StatusBarOverlaysWebView' from config.xml, default is false.
+            setStatusBarTransparent(preferences.getBoolean("StatusBarOverlaysWebView", false));
 
             // Read 'StatusBarBackgroundColor' from config.xml, default is #000000.
             setStatusBarBackgroundColor(preferences.getString("StatusBarBackgroundColor", "#000000"));
@@ -185,14 +185,24 @@ public class StatusBar extends CordovaPlugin {
 
     private void setStatusBarTransparent(final boolean isTransparent) {
         final Window window = cordova.getActivity().getWindow();
-        int visibility = isTransparent
-            ? View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            : View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_VISIBLE;
-
-        window.getDecorView().setSystemUiVisibility(visibility);
-
+        
         if (isTransparent) {
+            int visibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+            window.getDecorView().setSystemUiVisibility(visibility);
             window.setStatusBarColor(Color.TRANSPARENT);
+        } else {
+            // Non-transparent mode: status bar should not overlay the content
+            int visibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+            window.getDecorView().setSystemUiVisibility(visibility);
+            
+            // Ensure status bar has proper background and doesn't overlay content
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            
+            // Set a default background color if not already set
+            if (window.getStatusBarColor() == Color.TRANSPARENT) {
+                window.setStatusBarColor(Color.BLACK);
+            }
         }
     }
 

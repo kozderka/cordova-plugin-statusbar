@@ -123,7 +123,7 @@ static const void *kStatusBarStyle = &kStatusBarStyle;
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cordovaViewWillAppear:) name: @"CDVViewWillAppearNotification" object:nil];
 
-    _statusBarOverlaysWebView = YES; // default
+    _statusBarOverlaysWebView = NO; // default
 
     [self initializeStatusBarBackgroundView];
 
