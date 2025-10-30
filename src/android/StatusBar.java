@@ -330,27 +330,41 @@ public class StatusBar extends CordovaPlugin {
                 Insets sysInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars());
                 int top = sysInsets.top;
                 int bottom = sysInsets.bottom;
-                // Prefer using WindowInsetsCompat.isVisible to detect whether navigation bars are visible
-                boolean navVisible = true;
+
+                // Robust gesture detection: check navigationBars visibility and systemGestures inset size.
+                boolean gesturesDetected = false;
                 try {
-                    navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                    boolean navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                    if (!navVisible) {
+                        gesturesDetected = true;
+                    } else {
+                        try {
+                            Insets gestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
+                            int gestureBottom = gestureInsets.bottom;
+                            int gestureThreshold = dpToPx(20);
+                            if (gestureBottom > 0 && gestureBottom <= gestureThreshold) {
+                                gesturesDetected = true;
+                                LOG.d(TAG, "Detected small systemGestures.bottom=" + gestureBottom + " <= " + gestureThreshold + " -> treat as gestures");
+                            }
+                        } catch (Exception ignoredGest) {
+                            // ignore
+                        }
+                    }
                 } catch (Exception ignored) {
-                    // Fallback heuristic: if SYSTEM_UI_FLAG_HIDE_NAVIGATION is set, consider nav hidden
+                    // Fallback: check system UI flags
                     try {
                         View decor = activity.getWindow().getDecorView();
                         int sysUi = decor.getSystemUiVisibility();
-                        navVisible = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0;
-                    } catch (Exception ignored2) {
-                        navVisible = true;
-                    }
+                        boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
+                        if (navHidden) gesturesDetected = true;
+                    } catch (Exception ignored2) {}
                 }
-                if (!navVisible) {
-                    // Gesture navigation: ensure no bottom padding and clear any parent margin fallback
+
+                if (gesturesDetected) {
                     bottom = 0;
                     try { clearParentBottomMargin(v); } catch (Exception ignored) {}
-                    LOG.d(TAG, "Navigation gestures detected (no navigation bar) - bottom padding set to 0");
+                    LOG.d(TAG, "Gesture navigation detected -> bottom padding set to 0");
                 } else if (bottom == 0) {
-                    // If navigation is visible but system reports 0, use a safe fallback so content isn't covered
                     try {
                         bottom = dpToPx(48);
                         LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
