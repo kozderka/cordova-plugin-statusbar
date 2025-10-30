@@ -330,16 +330,30 @@ public class StatusBar extends CordovaPlugin {
                 Insets sysInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars());
                 int top = sysInsets.top;
                 int bottom = sysInsets.bottom;
-                // If bottom inset is zero but nav appears visible, use fallback so content isn't covered
-                if (bottom == 0) {
+                // Prefer using WindowInsetsCompat.isVisible to detect whether navigation bars are visible
+                boolean navVisible = true;
+                try {
+                    navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                } catch (Exception ignored) {
+                    // Fallback heuristic: if SYSTEM_UI_FLAG_HIDE_NAVIGATION is set, consider nav hidden
                     try {
                         View decor = activity.getWindow().getDecorView();
                         int sysUi = decor.getSystemUiVisibility();
-                        boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
-                        if (!navHidden) {
-                            bottom = dpToPx(48);
-                            LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
-                        }
+                        navVisible = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0;
+                    } catch (Exception ignored2) {
+                        navVisible = true;
+                    }
+                }
+                if (!navVisible) {
+                    // Gesture navigation: ensure no bottom padding and clear any parent margin fallback
+                    bottom = 0;
+                    try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                    LOG.d(TAG, "Navigation gestures detected (no navigation bar) - bottom padding set to 0");
+                } else if (bottom == 0) {
+                    // If navigation is visible but system reports 0, use a safe fallback so content isn't covered
+                    try {
+                        bottom = dpToPx(48);
+                        LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
                     } catch (Exception ignored) {}
                 }
 
