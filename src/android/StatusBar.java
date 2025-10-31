@@ -267,9 +267,18 @@ public class StatusBar extends CordovaPlugin {
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
                     android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
                     boolean changed = false;
-                    if (mlp.topMargin != statusBarHeight) {
-                        mlp.topMargin = statusBarHeight;
-                        changed = true;
+                    // For Android 14 (API 34) and lower, do not apply a top margin/padding — keep it 0
+                    if (Build.VERSION.SDK_INT > 34) {
+                        if (mlp.topMargin != statusBarHeight) {
+                            mlp.topMargin = statusBarHeight;
+                            changed = true;
+                        }
+                    } else {
+                        if (mlp.topMargin != 0) {
+                            mlp.topMargin = 0;
+                            changed = true;
+                            LOG.d(TAG, "Clearing top margin for SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                        }
                     }
                     if (changed) {
                         webViewView.setLayoutParams(mlp);
@@ -399,10 +408,19 @@ public class StatusBar extends CordovaPlugin {
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
                     android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
                     boolean changed = false;
-                    if (mlp.topMargin != top) {
-                        mlp.topMargin = top;
-                        changed = true;
-                        LOG.d(TAG, "Applied window inset top=" + top);
+                    // Only apply top inset as a margin on Android > 14. For older, clear top margin.
+                    if (Build.VERSION.SDK_INT > 34) {
+                        if (mlp.topMargin != top) {
+                            mlp.topMargin = top;
+                            changed = true;
+                            LOG.d(TAG, "Applied window inset top=" + top);
+                        }
+                    } else {
+                        if (mlp.topMargin != 0) {
+                            mlp.topMargin = 0;
+                            changed = true;
+                            LOG.d(TAG, "Clearing top margin from insets listener for SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                        }
                     }
                     if (changed) {
                         v.setLayoutParams(mlp);
