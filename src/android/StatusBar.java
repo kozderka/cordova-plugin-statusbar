@@ -95,6 +95,17 @@ public class StatusBar extends CordovaPlugin {
 
             // Try to ensure the activity content view participates in window insets
             ensureRootFitsSystemWindows();
+            // If running on Android 14 (API 34) or lower, clear any existing paddings/margins
+            // to avoid stale offsets (user requested no paddings for <= Android 14)
+            if (Build.VERSION.SDK_INT <= 34) {
+                LOG.d(TAG, "SDK " + Build.VERSION.SDK_INT + " detected -> clearing WebView padding/margins per request");
+                try {
+                    clearWebViewPadding();
+                    if (webView != null && webView.getView() != null) {
+                        clearParentBottomMargin(webView.getView());
+                    }
+                } catch (Exception ignored) {}
+            }
         });
     }
 
@@ -293,7 +304,11 @@ public class StatusBar extends CordovaPlugin {
                 // If fallback bottom padding applied, also set it as a parent margin so fixed-position elements
                 // inside the WebView are less likely to be covered by nav buttons.
                 if (navigationBarHeight > 0) {
-                    setParentBottomMargin(webViewView, navigationBarHeight);
+                    if (Build.VERSION.SDK_INT > 34) {
+                        setParentBottomMargin(webViewView, navigationBarHeight);
+                    } else {
+                        LOG.d(TAG, "Skipping setParentBottomMargin on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                 }
             }
         });
@@ -455,9 +470,14 @@ public class StatusBar extends CordovaPlugin {
                                 int sysUi = decor.getSystemUiVisibility();
                                 boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
                                 if (!navHidden) {
-                                    int fallback = dpToPx(48);
-                                    v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
-                                    LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                    // Only apply fallback root padding on Android > 14 (API 34)
+                                    if (Build.VERSION.SDK_INT > 34) {
+                                        int fallback = dpToPx(48);
+                                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
+                                        LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                    } else {
+                                        LOG.d(TAG, "Skipping fallback root bottom padding on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                                    }
                                 }
                             } catch (Exception ignored) {}
                         }
