@@ -95,6 +95,17 @@ public class StatusBar extends CordovaPlugin {
 
             // Try to ensure the activity content view participates in window insets
             ensureRootFitsSystemWindows();
+            // If running on Android 14 (API 34) or lower, clear any existing paddings/margins
+            // to avoid stale offsets (user requested no paddings for <= Android 14)
+            if (Build.VERSION.SDK_INT <= 34) {
+                LOG.d(TAG, "SDK " + Build.VERSION.SDK_INT + " detected -> clearing WebView padding/margins per request");
+                try {
+                    clearWebViewPadding();
+                    if (webView != null && webView.getView() != null) {
+                        clearParentBottomMargin(webView.getView());
+                    }
+                } catch (Exception ignored) {}
+            }
         });
     }
 
@@ -256,9 +267,18 @@ public class StatusBar extends CordovaPlugin {
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
                     android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
                     boolean changed = false;
-                    if (mlp.topMargin != statusBarHeight) {
-                        mlp.topMargin = statusBarHeight;
-                        changed = true;
+                    // For Android 14 (API 34) and lower, do not apply a top margin/padding — keep it 0
+                    if (Build.VERSION.SDK_INT > 34) {
+                        if (mlp.topMargin != statusBarHeight) {
+                            mlp.topMargin = statusBarHeight;
+                            changed = true;
+                        }
+                    } else {
+                        if (mlp.topMargin != 0) {
+                            mlp.topMargin = 0;
+                            changed = true;
+                            LOG.d(TAG, "Clearing top margin for SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                        }
                     }
                     if (changed) {
                         webViewView.setLayoutParams(mlp);
@@ -267,16 +287,25 @@ public class StatusBar extends CordovaPlugin {
                     if (navigationBarHeight == 0) {
                         navigationBarHeight = dpToPx(48); // Fallback to 48dp if navigation bar height is missing
                     }
-                    webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight(), navigationBarHeight);
+                    // Do not set paddings on Android 14 (API 34) and lower per user request — only use margins/insets there.
+                    if (Build.VERSION.SDK_INT > 34) {
+                        webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight(), navigationBarHeight);
+                    } else {
+                        LOG.d(TAG, "Skipping WebView padding apply on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                     webViewView.requestApplyInsets();
                 } else {
                     // Fallback to padding if margin params aren't available
-                    webViewView.setPadding(
-                        webViewView.getPaddingLeft(),
-                        statusBarHeight,
-                        webViewView.getPaddingRight(),
-                        navigationBarHeight
-                    );
+                    if (Build.VERSION.SDK_INT > 34) {
+                        webViewView.setPadding(
+                            webViewView.getPaddingLeft(),
+                            statusBarHeight,
+                            webViewView.getPaddingRight(),
+                            navigationBarHeight
+                        );
+                    } else {
+                        LOG.d(TAG, "Skipping fallback WebView padding on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                     webViewView.requestApplyInsets();
                 }
                 // Also install a WindowInsets listener to handle OEM/system changes (Android 15 fixes)
@@ -284,7 +313,11 @@ public class StatusBar extends CordovaPlugin {
                 // If fallback bottom padding applied, also set it as a parent margin so fixed-position elements
                 // inside the WebView are less likely to be covered by nav buttons.
                 if (navigationBarHeight > 0) {
-                    setParentBottomMargin(webViewView, navigationBarHeight);
+                    if (Build.VERSION.SDK_INT > 34) {
+                        setParentBottomMargin(webViewView, navigationBarHeight);
+                    } else {
+                        LOG.d(TAG, "Skipping setParentBottomMargin on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                 }
             }
         });
@@ -375,20 +408,37 @@ public class StatusBar extends CordovaPlugin {
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
                     android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
                     boolean changed = false;
-                    if (mlp.topMargin != top) {
-                        mlp.topMargin = top;
-                        changed = true;
-                        LOG.d(TAG, "Applied window inset top=" + top);
+                    // Only apply top inset as a margin on Android > 14. For older, clear top margin.
+                    if (Build.VERSION.SDK_INT > 34) {
+                        if (mlp.topMargin != top) {
+                            mlp.topMargin = top;
+                            changed = true;
+                            LOG.d(TAG, "Applied window inset top=" + top);
+                        }
+                    } else {
+                        if (mlp.topMargin != 0) {
+                            mlp.topMargin = 0;
+                            changed = true;
+                            LOG.d(TAG, "Clearing top margin from insets listener for SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                        }
                     }
                     if (changed) {
                         v.setLayoutParams(mlp);
                     }
-                    // Apply bottom padding to keep content above navigation bar
-                    v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
-                    LOG.d(TAG, "Applied padding bottom inset=" + bottom);
+                    // Apply bottom padding to keep content above navigation bar (only for Android > 14)
+                    if (Build.VERSION.SDK_INT > 34) {
+                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
+                        LOG.d(TAG, "Applied padding bottom inset=" + bottom);
+                    } else {
+                        LOG.d(TAG, "Skipping padding apply from insets listener on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                 } else {
-                    v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), bottom);
-                    LOG.d(TAG, "Applied padding insets top=" + top + " bottom=" + bottom + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                    if (Build.VERSION.SDK_INT > 34) {
+                        v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), bottom);
+                        LOG.d(TAG, "Applied padding insets top=" + top + " bottom=" + bottom + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                    } else {
+                        LOG.d(TAG, "Skipping non-margin padding from insets on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                    }
                 }
             } catch (Exception e) {
                 LOG.e(TAG, "Error applying window insets", e);
@@ -438,9 +488,14 @@ public class StatusBar extends CordovaPlugin {
                                 int sysUi = decor.getSystemUiVisibility();
                                 boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
                                 if (!navHidden) {
-                                    int fallback = dpToPx(48);
-                                    v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
-                                    LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                    // Only apply fallback root padding on Android > 14 (API 34)
+                                    if (Build.VERSION.SDK_INT > 34) {
+                                        int fallback = dpToPx(48);
+                                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
+                                        LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                    } else {
+                                        LOG.d(TAG, "Skipping fallback root bottom padding on SDK " + Build.VERSION.SDK_INT + " (<=34)");
+                                    }
                                 }
                             } catch (Exception ignored) {}
                         }
