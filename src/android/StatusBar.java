@@ -330,16 +330,44 @@ public class StatusBar extends CordovaPlugin {
                 Insets sysInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars());
                 int top = sysInsets.top;
                 int bottom = sysInsets.bottom;
-                // If bottom inset is zero but nav appears visible, use fallback so content isn't covered
-                if (bottom == 0) {
+
+                // Robust gesture detection: check navigationBars visibility and systemGestures inset size.
+                boolean gesturesDetected = false;
+                try {
+                    boolean navVisible = insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                    if (!navVisible) {
+                        gesturesDetected = true;
+                    } else {
+                        try {
+                            Insets gestureInsets = insets.getInsets(WindowInsetsCompat.Type.systemGestures());
+                            int gestureBottom = gestureInsets.bottom;
+                            int gestureThreshold = dpToPx(20);
+                            if (gestureBottom > 0 && gestureBottom <= gestureThreshold) {
+                                gesturesDetected = true;
+                                LOG.d(TAG, "Detected small systemGestures.bottom=" + gestureBottom + " <= " + gestureThreshold + " -> treat as gestures");
+                            }
+                        } catch (Exception ignoredGest) {
+                            // ignore
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Fallback: check system UI flags
                     try {
                         View decor = activity.getWindow().getDecorView();
                         int sysUi = decor.getSystemUiVisibility();
                         boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
-                        if (!navHidden) {
-                            bottom = dpToPx(48);
-                            LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
-                        }
+                        if (navHidden) gesturesDetected = true;
+                    } catch (Exception ignored2) {}
+                }
+
+                if (gesturesDetected) {
+                    bottom = 0;
+                    try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                    LOG.d(TAG, "Gesture navigation detected -> bottom padding set to 0");
+                } else if (bottom == 0) {
+                    try {
+                        bottom = dpToPx(48);
+                        LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
                     } catch (Exception ignored) {}
                 }
 
