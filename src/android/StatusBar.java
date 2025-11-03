@@ -265,6 +265,15 @@ public class StatusBar extends CordovaPlugin {
                 int navigationBarHeight = getNavigationBarHeight();
                 int navigationBarWidth = getNavigationBarWidth();
                 boolean isLandscape = activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+                View decor = activity.getWindow().getDecorView();
+                WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(decor);
+                int rootRight = 0;
+                int rootLeft = 0;
+                if (rootInsets != null) {
+                    Insets r = rootInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                    rootRight = r.right;
+                    rootLeft = r.left;
+                }
 
                 android.view.ViewGroup.LayoutParams lp = webViewView.getLayoutParams();
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
@@ -293,9 +302,17 @@ public class StatusBar extends CordovaPlugin {
                     // Do not set paddings on Android 14 (API 34) and lower per user request — only use margins/insets there.
                     if (Build.VERSION.SDK_INT > 34) {
                         if (isLandscape && navigationBarWidth > 0) {
-                            // Navigation buttons likely on the right side in landscape: apply right padding instead of bottom
-                            webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight() + navigationBarWidth, 0);
-                            LOG.d(TAG, "Applied right padding for landscape navWidth=" + navigationBarWidth);
+                            // Prefer using runtime root insets to decide left/right; fallback to right when unknown
+                            if (rootRight > 0) {
+                                webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight() + navigationBarWidth, 0);
+                                LOG.d(TAG, "Applied right padding for landscape navWidth=" + navigationBarWidth + " rootRight=" + rootRight);
+                            } else if (rootLeft > 0) {
+                                webViewView.setPadding(webViewView.getPaddingLeft() + navigationBarWidth, webViewView.getPaddingTop(), webViewView.getPaddingRight(), 0);
+                                LOG.d(TAG, "Applied left padding for landscape navWidth=" + navigationBarWidth + " rootLeft=" + rootLeft);
+                            } else {
+                                webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight() + navigationBarWidth, 0);
+                                LOG.d(TAG, "Applied right padding for landscape (fallback) navWidth=" + navigationBarWidth);
+                            }
                         } else {
                             webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight(), navigationBarHeight);
                         }
@@ -332,7 +349,13 @@ public class StatusBar extends CordovaPlugin {
                 // inside the WebView are less likely to be covered by nav buttons.
                 if (Build.VERSION.SDK_INT > 34) {
                     if (isLandscape && navigationBarWidth > 0) {
-                        setParentRightMargin(webViewView, navigationBarWidth);
+                        if (rootRight > 0) {
+                            setParentRightMargin(webViewView, navigationBarWidth);
+                        } else if (rootLeft > 0) {
+                            setParentLeftMargin(webViewView, navigationBarWidth);
+                        } else {
+                            setParentRightMargin(webViewView, navigationBarWidth);
+                        }
                     } else if (navigationBarHeight > 0) {
                         setParentBottomMargin(webViewView, navigationBarHeight);
                     }
@@ -368,8 +391,10 @@ public class StatusBar extends CordovaPlugin {
                 }
                 // Ensure insets listener is present so changes to system bars will be handled
                 applyWindowInsetsListenerToWebView(webViewView);
-                // Clear any parent bottom margin we may have applied as a fallback
+                // Clear any parent bottom/right/left margin we may have applied as a fallback
                 clearParentBottomMargin(webViewView);
+                try { clearParentRightMargin(webViewView); } catch (Exception ignored) {}
+                try { clearParentLeftMargin(webViewView); } catch (Exception ignored) {}
             }
         });
     }
@@ -642,6 +667,46 @@ public class StatusBar extends CordovaPlugin {
             }
         } catch (Exception e) {
             LOG.w(TAG, "Failed to clear parent right margin", e);
+        }
+    }
+
+    private void setParentLeftMargin(View v, int leftPx) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != leftPx) {
+                        mlp.leftMargin = leftPx;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Set parent left margin=" + leftPx);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to set parent left margin", e);
+        }
+    }
+
+    private void clearParentLeftMargin(View v) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != 0) {
+                        mlp.leftMargin = 0;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Cleared parent left margin");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to clear parent left margin", e);
         }
     }
 
