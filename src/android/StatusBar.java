@@ -588,12 +588,13 @@ public class StatusBar extends CordovaPlugin {
                                 boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
                                 if (!navHidden) {
                                     // Only apply fallback root padding on Android > 14 (API 34)
-                                    // and only when navigation is not positioned on the side (right) in landscape.
+                                    // and only when navigation is not positioned on the side (left or right) in landscape.
                                     boolean isLandscape = activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
                                     int rightInset = sys.right;
+                                    int leftInset = sys.left;
                                     if (Build.VERSION.SDK_INT > 34) {
-                                        if (isLandscape && rightInset > 0) {
-                                            LOG.d(TAG, "Skipping fallback root bottom padding because nav appears on the right in landscape (rightInset=" + rightInset + ")");
+                                        if (isLandscape && (rightInset > 0 || leftInset > 0)) {
+                                            LOG.d(TAG, "Skipping fallback root bottom padding because nav appears on the side in landscape (rightInset=" + rightInset + " leftInset=" + leftInset + ")");
                                         } else {
                                             int fallback = dpToPx(48);
                                             v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
