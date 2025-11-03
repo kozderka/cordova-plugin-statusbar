@@ -443,18 +443,29 @@ public class StatusBar extends CordovaPlugin {
                     if (gesturesDetected) {
                         bottom = 0;
                         right = 0;
+                        left = 0;
                         try { clearParentBottomMargin(v); } catch (Exception ignored) {}
                         try { clearParentRightMargin(v); } catch (Exception ignored) {}
-                        LOG.d(TAG, "Gesture navigation detected -> bottom/right padding set to 0");
+                        try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        LOG.d(TAG, "Gesture navigation detected -> bottom/right/left padding set to 0");
                     } else {
-                        // If nav is on the right (landscape) prefer right inset; if both zero, use fallback bottom
-                        if (bottom == 0 && right > 0) {
-                            LOG.d(TAG, "Navigation appears on the side: right inset=" + right);
-                        } else if (bottom == 0) {
-                            try {
-                                bottom = dpToPx(48);
-                                LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
-                            } catch (Exception ignored) {}
+                        // If nav is on the side in landscape prefer the side inset (right or left);
+                        // if neither side reports an inset, fall back to bottom padding.
+                        if (bottom == 0) {
+                            if (right > 0) {
+                                LOG.d(TAG, "Navigation appears on the side: right inset=" + right);
+                                // ensure bottom stays 0 so side padding is used
+                                bottom = 0;
+                            } else if (left > 0) {
+                                LOG.d(TAG, "Navigation appears on the side: left inset=" + left);
+                                // ensure bottom stays 0 so side padding is used
+                                bottom = 0;
+                            } else {
+                                try {
+                                    bottom = dpToPx(48);
+                                    LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
+                                } catch (Exception ignored) {}
+                            }
                         }
                     }
 
@@ -486,11 +497,19 @@ public class StatusBar extends CordovaPlugin {
                             LOG.d(TAG, "Applied right padding inset=" + right);
                             try { setParentRightMargin(v, right); } catch (Exception ignored) {}
                             try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        } else if (left > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft() + left, v.getPaddingTop(), v.getPaddingRight(), 0);
+                            LOG.d(TAG, "Applied left padding inset=" + left);
+                            try { setParentLeftMargin(v, left); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
                         } else {
                             v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
                             LOG.d(TAG, "Applied bottom padding inset=" + bottom);
                             try { setParentBottomMargin(v, bottom); } catch (Exception ignored) {}
                             try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
                         }
                     } else {
                         LOG.d(TAG, "Skipping padding apply from insets listener on SDK " + Build.VERSION.SDK_INT + " (<=34)");
@@ -502,11 +521,19 @@ public class StatusBar extends CordovaPlugin {
                             LOG.d(TAG, "Applied padding insets top=" + top + " right=" + right + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
                             try { setParentRightMargin(v, right); } catch (Exception ignored) {}
                             try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        } else if (left > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft() + left, top, v.getPaddingRight(), 0);
+                            LOG.d(TAG, "Applied padding insets top=" + top + " left=" + left + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                            try { setParentLeftMargin(v, left); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
                         } else {
                             v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), bottom);
                             LOG.d(TAG, "Applied padding insets top=" + top + " bottom=" + bottom + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
                             try { setParentBottomMargin(v, bottom); } catch (Exception ignored) {}
                             try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
                         }
                     } else {
                         LOG.d(TAG, "Skipping non-margin padding from insets on SDK " + Build.VERSION.SDK_INT + " (<=34)");
