@@ -31,6 +31,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.graphics.Insets;
+import android.content.res.Configuration;
 import android.webkit.WebView;
 
 import org.apache.cordova.CallbackContext;
@@ -262,6 +263,17 @@ public class StatusBar extends CordovaPlugin {
                 View webViewView = webView.getView();
                 int statusBarHeight = getStatusBarHeight();
                 int navigationBarHeight = getNavigationBarHeight();
+                int navigationBarWidth = getNavigationBarWidth();
+                boolean isLandscape = activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+                View decor = activity.getWindow().getDecorView();
+                WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(decor);
+                int rootRight = 0;
+                int rootLeft = 0;
+                if (rootInsets != null) {
+                    Insets r = rootInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+                    rootRight = r.right;
+                    rootLeft = r.left;
+                }
 
                 android.view.ViewGroup.LayoutParams lp = webViewView.getLayoutParams();
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
@@ -289,7 +301,21 @@ public class StatusBar extends CordovaPlugin {
                     }
                     // Do not set paddings on Android 14 (API 34) and lower per user request — only use margins/insets there.
                     if (Build.VERSION.SDK_INT > 34) {
-                        webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight(), navigationBarHeight);
+                        if (isLandscape && navigationBarWidth > 0) {
+                            // Prefer using runtime root insets to decide left/right; fallback to right when unknown
+                            if (rootRight > 0) {
+                                webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight() + navigationBarWidth, 0);
+                                LOG.d(TAG, "Applied right padding for landscape navWidth=" + navigationBarWidth + " rootRight=" + rootRight);
+                            } else if (rootLeft > 0) {
+                                webViewView.setPadding(webViewView.getPaddingLeft() + navigationBarWidth, webViewView.getPaddingTop(), webViewView.getPaddingRight(), 0);
+                                LOG.d(TAG, "Applied left padding for landscape navWidth=" + navigationBarWidth + " rootLeft=" + rootLeft);
+                            } else {
+                                webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight() + navigationBarWidth, 0);
+                                LOG.d(TAG, "Applied right padding for landscape (fallback) navWidth=" + navigationBarWidth);
+                            }
+                        } else {
+                            webViewView.setPadding(webViewView.getPaddingLeft(), webViewView.getPaddingTop(), webViewView.getPaddingRight(), navigationBarHeight);
+                        }
                     } else {
                         LOG.d(TAG, "Skipping WebView padding apply on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                     }
@@ -297,12 +323,21 @@ public class StatusBar extends CordovaPlugin {
                 } else {
                     // Fallback to padding if margin params aren't available
                     if (Build.VERSION.SDK_INT > 34) {
-                        webViewView.setPadding(
-                            webViewView.getPaddingLeft(),
-                            statusBarHeight,
-                            webViewView.getPaddingRight(),
-                            navigationBarHeight
-                        );
+                        if (isLandscape && navigationBarWidth > 0) {
+                            webViewView.setPadding(
+                                webViewView.getPaddingLeft(),
+                                statusBarHeight,
+                                webViewView.getPaddingRight() + navigationBarWidth,
+                                0
+                            );
+                        } else {
+                            webViewView.setPadding(
+                                webViewView.getPaddingLeft(),
+                                statusBarHeight,
+                                webViewView.getPaddingRight(),
+                                navigationBarHeight
+                            );
+                        }
                     } else {
                         LOG.d(TAG, "Skipping fallback WebView padding on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                     }
@@ -312,12 +347,20 @@ public class StatusBar extends CordovaPlugin {
                 applyWindowInsetsListenerToWebView(webViewView);
                 // If fallback bottom padding applied, also set it as a parent margin so fixed-position elements
                 // inside the WebView are less likely to be covered by nav buttons.
-                if (navigationBarHeight > 0) {
-                    if (Build.VERSION.SDK_INT > 34) {
+                if (Build.VERSION.SDK_INT > 34) {
+                    if (isLandscape && navigationBarWidth > 0) {
+                        if (rootRight > 0) {
+                            setParentRightMargin(webViewView, navigationBarWidth);
+                        } else if (rootLeft > 0) {
+                            setParentLeftMargin(webViewView, navigationBarWidth);
+                        } else {
+                            setParentRightMargin(webViewView, navigationBarWidth);
+                        }
+                    } else if (navigationBarHeight > 0) {
                         setParentBottomMargin(webViewView, navigationBarHeight);
-                    } else {
-                        LOG.d(TAG, "Skipping setParentBottomMargin on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                     }
+                } else {
+                    LOG.d(TAG, "Skipping parent margin adjustments on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                 }
             }
         });
@@ -348,8 +391,10 @@ public class StatusBar extends CordovaPlugin {
                 }
                 // Ensure insets listener is present so changes to system bars will be handled
                 applyWindowInsetsListenerToWebView(webViewView);
-                // Clear any parent bottom margin we may have applied as a fallback
+                // Clear any parent bottom/right/left margin we may have applied as a fallback
                 clearParentBottomMargin(webViewView);
+                try { clearParentRightMargin(webViewView); } catch (Exception ignored) {}
+                try { clearParentLeftMargin(webViewView); } catch (Exception ignored) {}
             }
         });
     }
@@ -363,6 +408,8 @@ public class StatusBar extends CordovaPlugin {
                 Insets sysInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars());
                 int top = sysInsets.top;
                 int bottom = sysInsets.bottom;
+                int right = sysInsets.right;
+                int left = sysInsets.left;
 
                 // Robust gesture detection: check navigationBars visibility and systemGestures inset size.
                 boolean gesturesDetected = false;
@@ -393,16 +440,34 @@ public class StatusBar extends CordovaPlugin {
                     } catch (Exception ignored2) {}
                 }
 
-                if (gesturesDetected) {
-                    bottom = 0;
-                    try { clearParentBottomMargin(v); } catch (Exception ignored) {}
-                    LOG.d(TAG, "Gesture navigation detected -> bottom padding set to 0");
-                } else if (bottom == 0) {
-                    try {
-                        bottom = dpToPx(48);
-                        LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
-                    } catch (Exception ignored) {}
-                }
+                    if (gesturesDetected) {
+                        bottom = 0;
+                        right = 0;
+                        left = 0;
+                        try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                        try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                        try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        LOG.d(TAG, "Gesture navigation detected -> bottom/right/left padding set to 0");
+                    } else {
+                        // If nav is on the side in landscape prefer the side inset (right or left);
+                        // if neither side reports an inset, fall back to bottom padding.
+                        if (bottom == 0) {
+                            if (right > 0) {
+                                LOG.d(TAG, "Navigation appears on the side: right inset=" + right);
+                                // ensure bottom stays 0 so side padding is used
+                                bottom = 0;
+                            } else if (left > 0) {
+                                LOG.d(TAG, "Navigation appears on the side: left inset=" + left);
+                                // ensure bottom stays 0 so side padding is used
+                                bottom = 0;
+                            } else {
+                                try {
+                                    bottom = dpToPx(48);
+                                    LOG.d(TAG, "Using fallback bottom inset=" + bottom + " because reported bottom was 0 and nav appears visible");
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                    }
 
                 android.view.ViewGroup.LayoutParams lp = v.getLayoutParams();
                 if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
@@ -425,17 +490,51 @@ public class StatusBar extends CordovaPlugin {
                     if (changed) {
                         v.setLayoutParams(mlp);
                     }
-                    // Apply bottom padding to keep content above navigation bar (only for Android > 14)
+                    // Apply padding to keep content above navigation bar (only for Android > 14)
                     if (Build.VERSION.SDK_INT > 34) {
-                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
-                        LOG.d(TAG, "Applied padding bottom inset=" + bottom);
+                        if (right > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight() + right, 0);
+                            LOG.d(TAG, "Applied right padding inset=" + right);
+                            try { setParentRightMargin(v, right); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        } else if (left > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft() + left, v.getPaddingTop(), v.getPaddingRight(), 0);
+                            LOG.d(TAG, "Applied left padding inset=" + left);
+                            try { setParentLeftMargin(v, left); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                        } else {
+                            v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), bottom);
+                            LOG.d(TAG, "Applied bottom padding inset=" + bottom);
+                            try { setParentBottomMargin(v, bottom); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        }
                     } else {
                         LOG.d(TAG, "Skipping padding apply from insets listener on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                     }
                 } else {
                     if (Build.VERSION.SDK_INT > 34) {
-                        v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), bottom);
-                        LOG.d(TAG, "Applied padding insets top=" + top + " bottom=" + bottom + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                        if (right > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight() + right, 0);
+                            LOG.d(TAG, "Applied padding insets top=" + top + " right=" + right + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                            try { setParentRightMargin(v, right); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        } else if (left > 0 && bottom == 0) {
+                            v.setPadding(v.getPaddingLeft() + left, top, v.getPaddingRight(), 0);
+                            LOG.d(TAG, "Applied padding insets top=" + top + " left=" + left + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                            try { setParentLeftMargin(v, left); } catch (Exception ignored) {}
+                            try { clearParentBottomMargin(v); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                        } else {
+                            v.setPadding(v.getPaddingLeft(), top, v.getPaddingRight(), bottom);
+                            LOG.d(TAG, "Applied padding insets top=" + top + " bottom=" + bottom + "; sysUi=" + v.getSystemUiVisibility() + " windowFlags=" + window.getAttributes().flags + " navColor=#" + Integer.toHexString(window.getNavigationBarColor()));
+                            try { setParentBottomMargin(v, bottom); } catch (Exception ignored) {}
+                            try { clearParentRightMargin(v); } catch (Exception ignored) {}
+                            try { clearParentLeftMargin(v); } catch (Exception ignored) {}
+                        }
                     } else {
                         LOG.d(TAG, "Skipping non-margin padding from insets on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                     }
@@ -489,10 +588,18 @@ public class StatusBar extends CordovaPlugin {
                                 boolean navHidden = (sysUi & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0;
                                 if (!navHidden) {
                                     // Only apply fallback root padding on Android > 14 (API 34)
+                                    // and only when navigation is not positioned on the side (left or right) in landscape.
+                                    boolean isLandscape = activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+                                    int rightInset = sys.right;
+                                    int leftInset = sys.left;
                                     if (Build.VERSION.SDK_INT > 34) {
-                                        int fallback = dpToPx(48);
-                                        v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
-                                        LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                        if (isLandscape && (rightInset > 0 || leftInset > 0)) {
+                                            LOG.d(TAG, "Skipping fallback root bottom padding because nav appears on the side in landscape (rightInset=" + rightInset + " leftInset=" + leftInset + ")");
+                                        } else {
+                                            int fallback = dpToPx(48);
+                                            v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), fallback);
+                                            LOG.d(TAG, "Applied fallback root bottom padding=" + fallback + " because sys bottom inset was 0 and nav appears visible");
+                                        }
                                     } else {
                                         LOG.d(TAG, "Skipping fallback root bottom padding on SDK " + Build.VERSION.SDK_INT + " (<=34)");
                                     }
@@ -549,6 +656,95 @@ public class StatusBar extends CordovaPlugin {
         } catch (Exception e) {
             LOG.w(TAG, "Failed to clear parent bottom margin", e);
         }
+    }
+
+    private void setParentRightMargin(View v, int rightPx) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.rightMargin != rightPx) {
+                        mlp.rightMargin = rightPx;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Set parent right margin=" + rightPx);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to set parent right margin", e);
+        }
+    }
+
+    private void clearParentRightMargin(View v) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.rightMargin != 0) {
+                        mlp.rightMargin = 0;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Cleared parent right margin");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to clear parent right margin", e);
+        }
+    }
+
+    private void setParentLeftMargin(View v, int leftPx) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != leftPx) {
+                        mlp.leftMargin = leftPx;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Set parent left margin=" + leftPx);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to set parent left margin", e);
+        }
+    }
+
+    private void clearParentLeftMargin(View v) {
+        try {
+            android.view.ViewParent parent = v.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                android.view.ViewGroup vg = (android.view.ViewGroup) parent;
+                android.view.ViewGroup.LayoutParams lp = vg.getLayoutParams();
+                if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+                    android.view.ViewGroup.MarginLayoutParams mlp = (android.view.ViewGroup.MarginLayoutParams) lp;
+                    if (mlp.leftMargin != 0) {
+                        mlp.leftMargin = 0;
+                        vg.setLayoutParams(mlp);
+                        LOG.d(TAG, "Cleared parent left margin");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.w(TAG, "Failed to clear parent left margin", e);
+        }
+    }
+
+    private int getNavigationBarWidth() {
+        int resourceId = activity.getResources().getIdentifier("navigation_bar_width", "dimen", "android");
+        if (resourceId > 0) {
+            return activity.getResources().getDimensionPixelSize(resourceId);
+        }
+        // Some devices don't expose width; fallback to 0
+        return 0;
     }
 
     private void setStatusBarStyle(final String style) {
